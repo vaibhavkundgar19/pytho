@@ -42,7 +42,7 @@ pipeline{
                 script{
                     echo 'deploying the container...'
                     sh "docker rm -f pytholab || true"
-                    sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:/latest""
+                    sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:/latest"
                 }
             }
         }  
