@@ -49,6 +49,104 @@
 //     }
 // }
 
+// pipeline {
+//     agent any
+
+//     environment {
+//         DOCKERHUB_USERNAME = 'kundgar19'
+//         IMAGE_NAME = 'pytho'
+//         IMAGE_TAG = "${BUILD_NUMBER}"
+//         //sonarqube scanner tool ka path lad karr rahe hai
+//         SCANNER_HOME = tool 'sonar-scanner'
+//     }
+
+//     stages {
+
+//         stage('checkout code') {
+//             steps {
+//                 echo 'code checkout automatically done via scm'
+//             }
+//         }
+//         stage('owasp security scan'){
+//             steps{
+//                 echo "Scanning for vulnerabilities...."
+//                 // DP-Check vo naam hai jo humne tool mein diya tha...
+//                 //phele baar chanle mein 10 to 2 mins lega(database update hone mein)
+//                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+
+//             }
+//         }
+//         stage('Sonarqube analysis'){
+//             steps{
+//                 withSonarQubeEnv('sonar-server'){
+//                     //code ko scan karke report server par bhejo
+//                 sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
+//                 }
+//             }
+//         }
+
+//         stage('Build docker image') {
+//             steps {
+//                 script {
+//                     echo 'build docker image ...'
+
+//                     // Build image with build number tag
+//                     sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
+
+//                     // Tag same image as latest
+//                     sh "docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
+//                 }
+//             }
+//         }
+
+//         stage('push to dockerhub') {
+//             steps {
+//                 script {
+//                     echo 'pushing to dockerhub.......'
+
+//                     withCredentials([
+//                         usernamePassword(
+//                             credentialsId: 'docker-hub-creds',
+//                             passwordVariable: 'DOCKER_PASS',
+//                             usernameVariable: 'DOCKER_USER'
+//                         )
+//                     ]) {
+
+//                         // Docker login
+//                         sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+
+//                         // Push both tags
+//                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+//                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('deploy the container') {
+//             steps {
+//                 script {
+//                     echo 'deploying the container...'
+
+//                     // Remove old container
+//                     sh "docker rm -f pytholab || true"
+
+//                     // Run latest container
+//                     sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
+//                 }
+//             }
+//         }
+//     }
+//     //Report generate karlo
+//     post{
+//         always{
+//             //owasp ki report graph ke roop mein dikhana...
+//             dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+//         }
+//     }
+// }
+
 pipeline {
     agent any
 
@@ -56,7 +154,8 @@ pipeline {
         DOCKERHUB_USERNAME = 'kundgar19'
         IMAGE_NAME = 'pytho'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        //sonarqube scanner tool ka path lad karr rahe hai
+
+        // SonarQube scanner tool name from Jenkins tools
         SCANNER_HOME = tool 'sonar-scanner'
     }
 
@@ -64,23 +163,40 @@ pipeline {
 
         stage('checkout code') {
             steps {
-                echo 'code checkout automatically done via scm'
+                echo 'Code checkout automatically done via SCM'
             }
         }
-        stage('owasp security scan'){
-            steps{
-                echo "Scanning for vulnerabilities...."
-                // DP-Check vo naam hai jo humne tool mein diya tha...
-                //phele baar chanle mein 10 to 2 mins lega(database update hone mein)
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
 
+        stage('owasp security scan') {
+            steps {
+                script {
+                    echo "Scanning for vulnerabilities..."
+
+                    dependencyCheck(
+                        additionalArguments: '--scan ./ --format XML --disableYarnAudit --disableNodeAudit',
+                        odcInstallation: 'DP-Check'
+                    )
+
+                    // Check whether report generated or not
+                    sh 'find . -name "dependency-check-report.xml"'
+
+                    // Optional debug
+                    sh 'ls -la'
+                }
             }
         }
-        stage('Sonarqube analysis'){
-            steps{
-                withSonarQubeEnv('sonar-server'){
-                    //code ko scan karke report server par bhejo
-                sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
+
+        stage('Sonarqube analysis') {
+            steps {
+                script {
+                    withSonarQubeEnv('sonar-server') {
+
+                        sh """
+                        ${SCANNER_HOME}/bin/sonar-scanner \
+                        -Dsonar.projectKey=pytho-project \
+                        -Dsonar.sources=.
+                        """
+                    }
                 }
             }
         }
@@ -88,12 +204,13 @@ pipeline {
         stage('Build docker image') {
             steps {
                 script {
-                    echo 'build docker image ...'
 
-                    // Build image with build number tag
+                    echo 'Building docker image...'
+
+                    // Build image with build number
                     sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
 
-                    // Tag same image as latest
+                    // Tag latest image
                     sh "docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                 }
             }
@@ -102,22 +219,24 @@ pipeline {
         stage('push to dockerhub') {
             steps {
                 script {
-                    echo 'pushing to dockerhub.......'
+
+                    echo 'Pushing image to DockerHub...'
 
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'docker-hub-creds',
-                            passwordVariable: 'DOCKER_PASS',
-                            usernameVariable: 'DOCKER_USER'
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
                         )
                     ]) {
 
                         // Docker login
-                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
 
-                        // Push both tags
+                        // Push build number image
                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
 
+                        // Push latest image
                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                     }
                 }
@@ -127,22 +246,36 @@ pipeline {
         stage('deploy the container') {
             steps {
                 script {
-                    echo 'deploying the container...'
 
-                    // Remove old container
+                    echo 'Deploying container...'
+
+                    // Remove old container if exists
                     sh "docker rm -f pytholab || true"
 
                     // Run latest container
+                    // Change internal port if your app runs on another port
                     sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                 }
             }
         }
     }
-    //Report generate karlo
-    post{
-        always{
-            //owasp ki report graph ke roop mein dikhana...
-            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+
+    post {
+        always {
+
+            echo 'Publishing OWASP Dependency Check report...'
+
+            dependencyCheckPublisher(
+                pattern: 'dependency-check-report.xml'
+            )
+        }
+
+        success {
+            echo 'Pipeline executed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline failed!'
         }
     }
 }
