@@ -49,113 +49,14 @@
 //     }
 // }
 
-// pipeline {
-//     agent any
-
-//     environment {
-//         DOCKERHUB_USERNAME = 'kundgar19'
-//         IMAGE_NAME = 'pytho'
-//         IMAGE_TAG = "${BUILD_NUMBER}"
-//         //sonarqube scanner tool ka path lad karr rahe hai
-//         SCANNER_HOME = tool 'sonar-scanner'
-//     }
-
-//     stages {
-
-//         stage('checkout code') {
-//             steps {
-//                 echo 'code checkout automatically done via scm'
-//             }
-//         }
-//         stage('owasp security scan'){
-//             steps{
-//                 echo "Scanning for vulnerabilities...."
-//                 // DP-Check vo naam hai jo humne tool mein diya tha...
-//                 //phele baar chanle mein 10 to 2 mins lega(database update hone mein)
-//                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
-
-//             }
-//         }
-//         stage('Sonarqube analysis'){
-//             steps{
-//                 withSonarQubeEnv('sonar-server'){
-//                     //code ko scan karke report server par bhejo
-//                 sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
-//                 }
-//             }
-//         }
-
-//         stage('Build docker image') {
-//             steps {
-//                 script {
-//                     echo 'build docker image ...'
-
-//                     // Build image with build number tag
-//                     sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
-
-//                     // Tag same image as latest
-//                     sh "docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
-//                 }
-//             }
-//         }
-
-//         stage('push to dockerhub') {
-//             steps {
-//                 script {
-//                     echo 'pushing to dockerhub.......'
-
-//                     withCredentials([
-//                         usernamePassword(
-//                             credentialsId: 'docker-hub-creds',
-//                             passwordVariable: 'DOCKER_PASS',
-//                             usernameVariable: 'DOCKER_USER'
-//                         )
-//                     ]) {
-
-//                         // Docker login
-//                         sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-
-//                         // Push both tags
-//                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-//                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
-//                     }
-//                 }
-//             }
-//         }
-
-//         stage('deploy the container') {
-//             steps {
-//                 script {
-//                     echo 'deploying the container...'
-
-//                     // Remove old container
-//                     sh "docker rm -f pytholab || true"
-
-//                     // Run latest container
-//                     sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
-//                 }
-//             }
-//         }
-//     }
-//     //Report generate karlo
-//     post{
-//         always{
-//             //owasp ki report graph ke roop mein dikhana...
-//             dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-//         }
-//     }
-// }
-
 pipeline {
-    agent any
+    agent any 
 
     environment {
         DOCKERHUB_USERNAME = 'kundgar19'
         IMAGE_NAME = 'pytho'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-
-        // SonarQube scanner tool name from Jenkins
+        IMAGE_TAG = "${BUILD_NUMBER}" //har build ka alag tag hoga for ex. 1,2,3.....
+        // sonarqube scanner tool ka path load kar rahe he
         SCANNER_HOME = tool 'sonar-scanner'
     }
 
@@ -163,87 +64,83 @@ pipeline {
 
         stage('checkout code') {
             steps {
-                echo 'Code checkout automatically done via SCM'
+                echo 'code checkout  done automatically via SCM'
             }
         }
-
-        stage('owasp security scan') {
-            steps {
-                script {
-
-                    echo "Scanning for vulnerabilities..."
-
-                    dependencyCheck(
-                        odcInstallation: 'DP-Check',
-                        additionalArguments: '''
-                            --scan .
-                            --format XML
-                            --out .
-                            --disableYarnAudit
-                            --disableNodeAudit
-                        '''
-                    )
-
-                    // Debugging logs
-                    sh 'pwd'
-                    sh 'ls -la'
-                    sh 'find . -name "*.xml"'
+        stage('Security Scans (FS & Dependencies)') {
+            parallel {
+                // Parallel execution: OWASP aur Trivy FS saath mein chalenge time bachane ke liye
+                stage('OWASP Dependency Check') {
+                    steps {
+                        echo "Scanning Dependencies..."
+                        dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                    }
                 }
-            }
-        }
-
-        stage('Sonarqube analysis') {
-            steps {
-                script {
-
-                    withSonarQubeEnv('sonar-server') {
-
-                        sh """
-                        ${SCANNER_HOME}/bin/sonar-scanner \
-                        -Dsonar.projectKey=pytho-project \
-                        -Dsonar.sources=.
-                        """
+                
+                stage('Trivy FS Scan') {
+                    steps {
+                        echo "Trivy Scanning File System..."
+                        // Ye poore folder (.) ko scan karega bugs/secrets ke liye
+                        sh "trivy fs . > trivy-fs-report.txt"
                     }
                 }
             }
         }
+        // stage('OWASP security scan'){
+        //     steps{
+        //         echo "scanning for vulnerabilities...."
+        //         // DP-Check oo nam he tool me dia tha.....
+        //         // pehili bar me chalne be 22-25 mins lega because (database update hone me...)
+        //         dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+        //     }
+        // }
+        stage('sonarqube analysis'){
+            steps{
+                withSonarQubeEnv('sonar-server'){
+                    // code ko scan karke report server par send karta he....
+                    sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
+                }
+            }
+        }
 
-        stage('Build docker image') {
+        stage('build docker image') {
             steps {
                 script {
+                    echo 'build docker image ......'
 
-                    echo 'Building Docker image...'
-
-                    // Build image using build number
+                    // image ke name format hoga usename/image:tag
                     sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
 
-                    // Tag image as latest
-                    sh "docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
+                    // ek latest tag bhi banata he taki deploy karna asan ho jaee..
+                    sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest ."
                 }
+            }
+        }
+        stage('trivy image scan'){
+            steps{
+                echo "scanning docker image for vulnerabilities"
+                sh "trivy image ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} > trivy-image-report.txt"
             }
         }
 
         stage('push to dockerhub') {
             steps {
                 script {
-
-                    echo 'Pushing image to DockerHub...'
+                    echo 'pushing to dockerhub.....'
 
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'docker-hub-creds',
-                            usernameVariable: 'DOCKER_USER',
-                            passwordVariable: 'DOCKER_PASS'
+                            passwordVariable: 'DOCKER_PASS',
+                            usernameVariable: 'DOCKER_USER'
                         )
                     ]) {
 
-                        // Docker login
-                        sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                        // login command
+                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
 
-                        // Push build image
+                        // push command
                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-                        // Push latest image
                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                     }
                 }
@@ -253,37 +150,26 @@ pipeline {
         stage('deploy the container') {
             steps {
                 script {
+                    echo "deploying application.."
 
-                    echo 'Deploying container...'
-
-                    // Remove old container if exists
                     sh "docker rm -f pytholab || true"
 
-                    // Run latest container
-                    // Change internal port if your app runs on another port
                     sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                 }
             }
         }
     }
-
-    post {
-
-        always {
-
-            echo 'Publishing OWASP Dependency Check report...'
-
-            dependencyCheckPublisher(
-                pattern: 'dependency-check-report.xml'
-            )
+    // Report generate kar lo
+    post{
+        always{
+            // OWASP ke report graph ke rup me dikhana....
+            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            // Trivy reports ko archive karna taaki download kar sakein
+            archiveArtifacts artifacts: 'trivy-fs-report.txt, trivy-image-report.txt', allowEmptyArchive: true
         }
-
-        success {
-            echo 'Pipeline executed successfully!'
-        }
-
-        failure {
-            echo 'Pipeline failed!'
+        failure{
+            echo "build failed sending emial to developer"
+            mail to: 'vaibhavkundgar181@gmail.com', subject: "build failed: ${JOB_NAME}", body: "check jenkins logs"
         }
     }
 }
