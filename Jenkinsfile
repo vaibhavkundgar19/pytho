@@ -155,7 +155,7 @@ pipeline {
         IMAGE_NAME = 'pytho'
         IMAGE_TAG = "${BUILD_NUMBER}"
 
-        // SonarQube scanner tool name from Jenkins tools
+        // SonarQube scanner tool name from Jenkins
         SCANNER_HOME = tool 'sonar-scanner'
     }
 
@@ -170,18 +170,24 @@ pipeline {
         stage('owasp security scan') {
             steps {
                 script {
+
                     echo "Scanning for vulnerabilities..."
 
                     dependencyCheck(
-                        additionalArguments: '--scan ./ --format XML --disableYarnAudit --disableNodeAudit',
-                        odcInstallation: 'DP-Check'
+                        odcInstallation: 'DP-Check',
+                        additionalArguments: '''
+                            --scan .
+                            --format XML
+                            --out .
+                            --disableYarnAudit
+                            --disableNodeAudit
+                        '''
                     )
 
-                    // Check whether report generated or not
-                    sh 'find . -name "dependency-check-report.xml"'
-
-                    // Optional debug
+                    // Debugging logs
+                    sh 'pwd'
                     sh 'ls -la'
+                    sh 'find . -name "*.xml"'
                 }
             }
         }
@@ -189,6 +195,7 @@ pipeline {
         stage('Sonarqube analysis') {
             steps {
                 script {
+
                     withSonarQubeEnv('sonar-server') {
 
                         sh """
@@ -205,12 +212,12 @@ pipeline {
             steps {
                 script {
 
-                    echo 'Building docker image...'
+                    echo 'Building Docker image...'
 
-                    // Build image with build number
+                    // Build image using build number
                     sh "docker build -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
 
-                    // Tag latest image
+                    // Tag image as latest
                     sh "docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                 }
             }
@@ -233,7 +240,7 @@ pipeline {
                         // Docker login
                         sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
 
-                        // Push build number image
+                        // Push build image
                         sh "docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
 
                         // Push latest image
@@ -261,6 +268,7 @@ pipeline {
     }
 
     post {
+
         always {
 
             echo 'Publishing OWASP Dependency Check report...'
