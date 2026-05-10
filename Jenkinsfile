@@ -78,10 +78,10 @@ pipeline {
         }
         stage('Sonarqube analysis'){
             steps{
-                withSonarQubeEnv('sonar-server')
-                //code ko scan karke report server par bhejo
+                withSonarQubeEnv('sonar-server'){
+                    //code ko scan karke report server par bhejo
                 sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
-
+                }
             }
         }
 
