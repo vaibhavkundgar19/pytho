@@ -56,6 +56,8 @@ pipeline {
         DOCKERHUB_USERNAME = 'kundgar19'
         IMAGE_NAME = 'pytho'
         IMAGE_TAG = "${BUILD_NUMBER}"
+        //sonarqube scanner tool ka path lad karr rahe hai
+        SCANNER_HOME = tool 'sonar-scanner'
     }
 
     stages {
@@ -63,6 +65,23 @@ pipeline {
         stage('checkout code') {
             steps {
                 echo 'code checkout automatically done via scm'
+            }
+        }
+        stage('owasp security scan'){
+            steps{
+                echo "Scanning for vulnerabilities...."
+                // DP-Check vo naam hai jo humne tool mein diya tha...
+                //phele baar chanle mein 10 to 2 mins lega(database update hone mein)
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+
+            }
+        }
+        stage('Sonarqube analysis'){
+            steps{
+                withSonarQubeEnv('sonar-server')
+                //code ko scan karke report server par bhejo
+                sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.projectKey=pytho-project -Dsonar.source=."
+
             }
         }
 
@@ -117,6 +136,13 @@ pipeline {
                     sh "docker run -d --name pytholab -p 80:80 ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest"
                 }
             }
+        }
+    }
+    //Report generate karlo
+    post{
+        always{
+            //owasp ki report graph ke roop mein dikhana...
+            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
         }
     }
 }
